@@ -1,0 +1,52 @@
+# default config
+defaults: [{ "": "default_config.yaml" }]
+
+# distributed training/slurm arguments
+nodes: 8
+ngpus_per_node: 3  # number of GPUs per node
+node_rank: -1 # machine nr. in node (0 -- nodes - 1)
+local_rank: -1  # range: (0 -- num_gpus_per_node - 1)
+multiprocessing_distributed: True  # Use DistributedDataProcessing if True
+num_workers: 12
+
+# SLURM/Submitit Arguments
+slurm_job_name: "maesstro"
+slurm_comment: "small_patch" # for slurm job only
+slurm_partition: "gpu-a100"
+job_dir: "slurm_log/mae_%j"
+walltime: 2880  # in minutes (max walltime on Longhorn is 2,880 minutes)
+
+# Model params
+input_size: 128
+input_channels: 1
+model: "mae_vit_tiny_patch4_dec192d12b3h"
+mask_ratio: 0.8  # this is unused because we use `forward_random_mask_ratio_vectorized` in the call to model(imgs)
+norm_pix_loss: false
+
+
+# data_path: "/home/goh/Documents/SLICE/podaac_tutorials/notebooks/sst_tiles"
+dataset: "LLC4320_SST_global"
+data_path: "/tmp/2012"  # contains ~700,000 .npy files
+val_data_path: "/tmp/2011"
+output_dir: "/scratch/maesstro_output"
+multiple_tiles_per_nc: false
+resume: ""
+
+# Optimizer params
+weight_decay: 0.05
+blr: 1.5e-4  # scaled learning rate; base_lr = absolute_lr * total_batch_size / 256
+min_lr: 0.  # lower LR bound for cyclic schedulers that hit 0
+warmup_epochs: 30  # num. epochs to warmup LR
+
+# train options
+batch_size: 82
+epochs: 300
+accum_iter: 1
+evaluate_mae_predictions: true
+
+# wandb
+use_wandb: true
+wandb_project: "maesstro_experiments"
+
+sea_ice_data_path: "/home/goh/Documents/SLICE/maesstro/under_sea_ice_files_2012_full.txt"
+sea_ice_val_data_path: "/home/goh/Documents/SLICE/maesstro/under_sea_ice_files_2011.txt"

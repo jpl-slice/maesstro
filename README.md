@@ -154,3 +154,31 @@ The pre-training instruction is in [PRETRAIN.md](PRETRAIN.md).
 ### License
 
 This project is under the CC-BY-NC 4.0 license. See [LICENSE](LICENSE) for details.
+
+
+## New in MAESSTRO
+
+### New Files Added
+
+- [data_utils/__init__.py](data_utils/__init__.py): Contains a `create_data_loader` function to create PyTorch data loaders for the LLC4320 SST dataset.
+
+- [data_utils/llc4320_sst.py](data_utils/llc4320_sst.py): Defines the LLC4320 SST PyTorch dataset, including dataset classes and utility functions to manage data directories and normalize temperature values.
+
+- [util/parse_args.py](util/parse_args.py): Implements a command-line argument parser to handle arguments for the MAESSTRO training script. Also provides a basic OmegaConf-like YAML configuration loading functionality.
+
+### Changes in Existing Files
+[engine_pretrain.py](engine_pretrain.py):
+- Log RMSE and $R^2$ scores during training and validation.
+- Added conditions to handle cases when samples contain NaN values, improving the robustness of the training loop.
+- Introduced code snippets to handle Distributed Data Parallel (DDP) setups more efficiently.
+
+[main_pretrain.py](main_pretrain.py):
+-Refactored to include a more dynamic command-line argument parser which likely allows for greater flexibility in setting up experiments.
+
+[models_mae.py](models_mae.py) *Primary change for mixed masking ratio*
+- Adjusted the model initialization to be more versatile with configurations, facilitating experiments with different model setups.
+- Adjustments in the model architecture to potentially include more configuration options such as the number of decoder heads and dimensions.
+- Enabled the use of a mixed masking ratio for model training
+
+### Utility Scripts (util/metrics.py, util/misc.py, etc.):
+- Added various utilities for better metric handling, distributed training setups, and logging.

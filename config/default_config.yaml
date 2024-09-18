@@ -1,0 +1,67 @@
+# Distributed training/SLURM arguments
+nodes: 1
+ngpus_per_node: 1  # number of GPUs per node
+node_rank: -1 # machine nr. in node (0 -- nodes - 1)
+local_rank: -1  # range: (0 -- num_gpus_per_node - 1)
+multiprocessing_distributed: False  # Use DistributedDataProcessing if True
+num_workers: 16  # number of data loading workers
+world_size: -1
+pin_mem: True  # Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU
+use_mp_spawn: false  # Whether or not to use mp.spawn to launch distributed training
+
+# SLURM/Submitit Arguments
+slurm_job_name: "mae"
+slurm_comment: "MAE run" # for slurm job only
+slurm_partition: "gpu-a100"  # on Lonestar6 this is the GPu node
+job_dir: "slurm_log/mae_%j"
+walltime: 60  # in minutes (max walltime on Longhorn is 2,880 minutes)
+
+# SLURM options
+timeout: 3600
+partition: "v100*"
+world_size: -1
+dist_backend: "nccl"
+gpu: null
+master_addr: "127.0.0.1"
+
+# Model params
+model: "mae_vit_large_patch16"
+input_size: 224
+mask_ratio: 0.75  # masking ratio (percentage of removed PATCHES)
+# https://github.com/facebookresearch/mae/issues/12#issuecomment-1011689674
+norm_pix_loss: False  # Use (per-patch) normalized pixels as targets for computing loss; set to True for better representation learning
+input_channels: 3  # RGB is the default number of channels
+
+# Optimizer params
+weight_decay: 0.05
+lr: null  # absolute learning rate; will override blr if not none
+blr: 1.5e-4  # scaled learning rate; base_lr = absolute_lr * total_batch_size / 256
+min_lr: 0.  # lower LR bound for cyclic schedulers that hit 0
+warmup_epochs: 40  # num. epochs to warmup LR
+
+# Dataset params
+seed: 0
+dataset: "ImageNet_Full"
+data_path: "/datasets01/imagenet_full_size/061417/"
+output_dir: "./mae_output"
+
+# LLC4320-specific options to remove under-sea ice
+sea_ice_data_path: null
+sea_ice_val_data_path: null
+
+# path to final model checkpoint
+checkpoint: ""
+save_predictions_to_file: false  # applies only to validation
+
+# Train options
+resume: ""  # resume from checkpoint
+start_epoch: 0
+batch_size: 64
+epochs: 400
+accum_iter: 1  # Accumulate gradient iterations (for increasing the effective batch size under memory constraints)
+evaluate_mae_predictions: false  # Evaluate reconstructions on validation set
+
+# wandb
+use_wandb: false
+wandb_project: "mae_test"
+wandb_run_id: null

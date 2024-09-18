@@ -12,13 +12,20 @@
 import builtins
 import datetime
 import os
+import random
 import time
+import warnings
 from collections import defaultdict, deque
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.distributed as dist
-from torch._six import inf
+
+try:
+    from torch._six import inf
+except ImportError:
+    from torch import inf
 
 
 class SmoothedValue(object):
@@ -84,9 +91,31 @@ class SmoothedValue(object):
 
 
 class MetricLogger(object):
+    """
+    Log metrics during the training of a machine learning model.
+
+    Example usage (at every epoch):
+        logger = misc.MetricLogger(delimiter="\t")
+        iterable = logger.log_every(data_loader, print_freq, header="Epoch: [5/10]")
+        for data_iter_step, (images, labels) in enumerate(iterable):
+            loss, acc = train_model()
+            logger.update(loss=loss, accuracy=acc)
+        logger.synchronize_between_processes()
+        print("Averaged stats:", metric_logger)
+        stats = {metric: meter.global_avg for metric, meter in logger.meters.items()}
+    """
+
     def __init__(self, delimiter="\t"):
+        """
+        Initializes a new MetricLogger object.
+
+        Parameters:
+            delimiter (str): The delimiter to use when printing the metrics. Default is "\t".
+        """
         self.meters = defaultdict(SmoothedValue)
         self.delimiter = delimiter
+        self.meters["iter_time"] = SmoothedValue(fmt="{avg:.4f}")
+        self.meters["data_time"] = SmoothedValue(fmt="{avg:.4f}")
 
     def update(self, **kwargs):
         for k, v in kwargs.items():
@@ -121,13 +150,27 @@ class MetricLogger(object):
         self.meters[name] = meter
 
     def log_every(self, iterable, print_freq, header=None):
+        """This function iterates over an iterable object and yields the elements of the iterable.
+        It also logs the metrics stored in the meters dictionary at regular intervals
+        specified by the print_freq argument.
+        It takes an optional `header` argument as a title for the log message.
+        It also includes the elapsed time and memory usage in the log message if GPU is available.
+
+        Args:
+            iterable (DataLoader): PyTorch DataLoader that returns batches of training data
+            print_freq (int): Print interval for self.meters dictionary
+            header (str, optional): Title for the log message. Defaults to None.
+
+        Yields:
+            torch.Tensor: A batch of PyTorch tensors that represent train/val data
+        """
         i = 0
         if not header:
             header = ''
         start_time = time.time()
         end = time.time()
-        iter_time = SmoothedValue(fmt='{avg:.4f}')
-        data_time = SmoothedValue(fmt='{avg:.4f}')
+        iter_time = self.meters["iter_time"]  # time to iterate over a batch of data
+        data_time = self.meters["data_time"]  # time taken to load batch of data
         space_fmt = ':' + str(len(str(len(iterable)))) + 'd'
         log_msg = [
             header,
@@ -138,12 +181,13 @@ class MetricLogger(object):
             'data: {data}'
         ]
         if torch.cuda.is_available():
-            log_msg.append('max mem: {memory:.0f}')
+            log_msg.append("max mem: {memory:.0f} MB")
         log_msg = self.delimiter.join(log_msg)
         MB = 1024.0 * 1024.0
         for obj in iterable:
             data_time.update(time.time() - end)
-            yield obj
+            yield obj  # yield does not terminate execution of the function
+            # re-enter after training loop; iter_time includes forward/back prop
             iter_time.update(time.time() - end)
             if i % print_freq == 0 or i == len(iterable) - 1:
                 eta_seconds = iter_time.global_avg * (len(iterable) - i)
@@ -213,39 +257,102 @@ def save_on_master(*args, **kwargs):
         torch.save(*args, **kwargs)
 
 
-def init_distributed_mode(args):
-    if args.dist_on_itp:
-        args.rank = int(os.environ['OMPI_COMM_WORLD_RANK'])
-        args.world_size = int(os.environ['OMPI_COMM_WORLD_SIZE'])
-        args.gpu = int(os.environ['OMPI_COMM_WORLD_LOCAL_RANK'])
-        args.dist_url = "tcp://%s:%s" % (os.environ['MASTER_ADDR'], os.environ['MASTER_PORT'])
-        os.environ['LOCAL_RANK'] = str(args.gpu)
-        os.environ['RANK'] = str(args.rank)
-        os.environ['WORLD_SIZE'] = str(args.world_size)
-        # ["RANK", "WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT", "LOCAL_RANK"]
-    elif 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
-        args.rank = int(os.environ["RANK"])
-        args.world_size = int(os.environ['WORLD_SIZE'])
-        args.gpu = int(os.environ['LOCAL_RANK'])
-    elif 'SLURM_PROCID' in os.environ:
-        args.rank = int(os.environ['SLURM_PROCID'])
-        args.gpu = args.rank % torch.cuda.device_count()
-    else:
-        print('Not using distributed mode')
-        setup_for_distributed(is_master=True)  # hack
-        args.distributed = False
-        return
+def init_distributed_mode(gpu, args):
+    # ["RANK", "WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT", "LOCAL_RANK"]
 
-    args.distributed = True
+    try:  # try submitit first
+        import submitit
 
-    torch.cuda.set_device(args.gpu)
-    args.dist_backend = 'nccl'
-    print('| distributed init (rank {}): {}, gpu {}'.format(
-        args.rank, args.dist_url, args.gpu), flush=True)
-    torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                         world_size=args.world_size, rank=args.rank)
-    torch.distributed.barrier()
-    setup_for_distributed(args.rank == 0)
+        job_env = submitit.JobEnvironment()
+        args.local_rank = job_env.local_rank  # range: 0 to (num_gpus_per_node - 1)
+        args.global_rank = job_env.global_rank  # 0 to (num_nodes * gpus_per_node - 1)
+        args.world_size = job_env.num_tasks
+        args.node_rank = job_env.node
+        gpu = args.local_rank
+    except (
+        Exception
+    ) as e:  # try to use SLURM vars if local_rank and node_rank not specified
+        print(
+            f"Encountered '{e}' when loading distributed vars "
+            f"from submitit. Using environment vars instead."
+        )
+        if args.local_rank == -1:
+            args.local_rank = int(os.environ.get("SLURM_LOCALID", gpu))
+        if args.node_rank == -1:
+            args.node_rank = int(
+                os.environ.get("SLURM_NODEID", os.environ.get("RANK", 0))
+            )
+        # https://github.com/facebookincubator/submitit/blob/main/submitit/slurm/slurm.py#L179
+        args.global_rank = int(
+            os.environ.get(
+                "SLURM_PROCID", args.node_rank * args.ngpus_per_node + args.local_rank
+            )
+        )
+        args.world_size = args.nodes * args.ngpus_per_node
+        if "SLURM_SUBMIT_HOST" in os.environ:
+            args.master_addr = os.environ["SLURM_SUBMIT_HOST"]
+
+    if args.world_size > 1 and not args.multiprocessing_distributed:
+        warnings.warn(
+            f"WARNING:\n"
+            f"========\n"
+            f"World size is {args.world_size}, but neither DDP nor DataParallel"
+            f" are enabled. Setting gpus=1, nodes=1, dataparallel=False, ddp=False"
+        )
+        args.gpus = args.nodes = args.world_size = 1
+        args.multiprocessing_distributed = False
+    elif args.world_size == 1 and args.multiprocessing_distributed:
+        warnings.warn(
+            f"WARNING:\n"
+            f"========\n"
+            f"World size is 1, but DDP is enabled. Setting gpus=1, nodes=1,"
+            f" dataparallel=False, ddp=False"
+        )
+        args.gpus = args.nodes = args.world_size = 1
+        args.multiprocessing_distributed = False
+
+    args.distributed = args.world_size > 1 or args.multiprocessing_distributed
+
+    if args.distributed:
+        if "dist_url" not in args:
+            args.dist_url = f"tcp://{args.master_addr}:{args.port}"
+        print(
+            f"Initializing process group on global rank {args.global_rank} "
+            f"on node {args.node_rank}, gpu {args.local_rank} "
+            f"with port {args.port} on {args.dist_url}"
+        )
+        dist.init_process_group(
+            backend=args.dist_backend,
+            init_method=args.dist_url,
+            world_size=args.world_size,
+            rank=args.global_rank,
+        )
+        print(f"Process initialization completed for global rank {args.global_rank}")
+
+    elif gpu is None and not torch.cuda.is_available():
+        # AllGather implementation (batch shuffle, queue update, etc.) in
+        # this code only supports DistributedDataParallel.
+        raise NotImplementedError("Only DistributedDataParallel is supported.")
+    args.device = torch.device(
+        f"cuda:{args.local_rank}" if torch.cuda.is_available() else "cpu"
+    )
+    torch.cuda.set_device(args.device)
+
+    # suppress printing if not master
+    if args.multiprocessing_distributed and args.global_rank != 0:
+        # only print on master node
+        def print_pass(*args, **kwargs):
+            pass
+
+        builtins.print = print_pass
+
+
+def set_manual_seed(seed):
+    if seed is not None:
+        random.seed(seed)
+        torch.manual_seed(seed)
+        # set numpy seed as well
+        np.random.seed(seed)
 
 
 class NativeScalerWithGradNormCount:
@@ -310,6 +417,7 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler):
     else:
         client_state = {'epoch': epoch}
         model.save_checkpoint(save_dir=args.output_dir, tag="checkpoint-%s" % epoch_name, client_state=client_state)
+    return os.path.join(args.output_dir, f"checkpoint-{epoch_name}.pth")
 
 
 def load_model(args, model_without_ddp, optimizer, loss_scaler):
