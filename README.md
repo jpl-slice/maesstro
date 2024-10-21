@@ -1,3 +1,28 @@
+## MAESSTRO: Masked Autoencoders for Sea Surface Temperature Reconstruction under Occlusion
+
+This is a modification of the original Masked Autoencoder (MAE) repository to work with Sea Surface Temperature (SST) data, exploiting MAE's pretraining pretext task of reconstructing images to reconstruct SST fields with gaps (such as those caused by cloud occlusion).
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/053d674e-6daa-4b2e-84d0-5a179a576b12" width="720">
+</p>
+
+Results from the MAESSTRO model trained using this modified repo are published in the paper [MAESSTRO: Masked Autoencoders for Sea Surface Temperature Reconstruction under Occlusion](https://egusphere.copernicus.org/preprints/2023/egusphere-2023-1385/):
+```
+@Article{egusphere-2023-1385,
+AUTHOR = {Goh, E. and Yepremyan, A. R. and Wang, J. and Wilson, B.},
+TITLE = {MAESSTRO: Masked Autoencoders for Sea Surface Temperature Reconstruction under Occlusion},
+JOURNAL = {EGUsphere},
+VOLUME = {2023},
+YEAR = {2023},
+PAGES = {1--20},
+URL = {https://egusphere.copernicus.org/preprints/2023/egusphere-2023-1385/},
+DOI = {10.5194/egusphere-2023-1385}
+}
+```
+
+
+<br><br>*Original README.md below:*
+
 ## Masked Autoencoders: A PyTorch Implementation
 
 <p align="center">
