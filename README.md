@@ -20,6 +20,13 @@ DOI = {10.5194/egusphere-2023-1385}
 }
 ```
 
+The DOI for this repository is: [10.5281/zenodo.13799966](https://doi.org/10.5281/zenodo.13799966)
+
+### Example result
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/ced047cb-0579-46d7-a612-1e1194f86946" width="360">
+</p>
+
 
 <br><br>*Original README.md below:*
 
